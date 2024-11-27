@@ -6,14 +6,56 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 
-// The main custom view class
-class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
+fun postJson(json: JSONObject): String? {
+    val url = URL("https://3e77-149-156-124-2.ngrok-free.app/api/data")
+    val connection = url.openConnection() as HttpURLConnection
+    println(json.toString())
+
+    try {
+
+        connection.requestMethod = "POST"
+        connection.setRequestProperty("Content-Type", "application/json; utf-8")
+        connection.setRequestProperty("Accept", "application/json")
+        connection.doOutput = true
+
+
+        connection.outputStream.use { os ->
+            OutputStreamWriter(os, "UTF-8").use { writer ->
+                writer.write(json.toString())
+                writer.flush()
+            }
+        }
+
+        return connection.inputStream.bufferedReader().use { it.readText() }
+
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    } finally {
+        connection.disconnect()
+    }
+}
+
+
+class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs), CoroutineScope by MainScope() {
 
     private val paint = Paint()
     private val path = Path()
+    private var cords = JSONObject().apply {
+        put("x", JSONArray())
+        put("y", JSONArray())
+    }
 
-    // Primary constructor used for XML inflation or programmatic creation
     constructor(context: Context) : this(context, null)
 
     init {
@@ -24,7 +66,6 @@ class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        // Draw the current path
         canvas.drawPath(path, paint)
     }
 
@@ -34,20 +75,28 @@ class DrawingView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
         when (event.action) {
             MotionEvent.ACTION_DOWN -> {
-                // Start a new path
                 path.moveTo(x, y)
                 Log.d("DrawingView", "Touch down at ($x, $y)")
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                // Continue drawing the path
                 path.lineTo(x, y)
-//                Log.d("DrawingView", "Touch move at ($x, $y)")
-                invalidate() // Redraw the view to update the drawing
+                (cords.getJSONArray("x")).put(x)
+                (cords.getJSONArray("y")).put(y)
+                invalidate()
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 path.reset()
+                println(cords.toString())
+                launch(Dispatchers.IO) {
+                    postJson(cords)
+                    cords = JSONObject().apply {
+                        put("x", JSONArray())
+                        put("y", JSONArray())
+                    }
+                }
+
                 return false
             }
             else -> return false
